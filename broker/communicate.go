@@ -110,39 +110,39 @@ func (broker *Broker) InterchainRequestByHttp(stub shim.ChaincodeStubInterface, 
 	return shim.Success([]byte(returnData))
 }
 
-// 非跨链操作请求，通过Http发送请求并接收返回数据
-func (broker *Broker) RequestByHttp(stub shim.ChaincodeStubInterface, req RequestToPAPP) pb.Response {
-	// 获取PAPP的IP地址
-	IP, err := stub.GetState(PAPPIP)
-	if err != nil {
-		return shim.Error(err.Error())
-	}
-
-	reqData, err := json.Marshal(req)
-	if err != nil {
-		return shim.Error(err.Error())
-	}
-
-	// 发送http.post请求
-	returnData,err := broker.SendRep(string(IP), string(reqData))
-	if err != nil {
-		return shim.Error(err.Error())
-	}
-	return shim.Success([]byte(returnData))
-}
-
-// 非跨链操作请求，通过SetEvent发送请求
-func (broker *Broker) RequestBySetEvent(stub shim.ChaincodeStubInterface, req RequestToPAPP) pb.Response {
-	reqData, err := json.Marshal(req)
-	if err != nil {
-		return shim.Error(err.Error())
-	}
-
-	if err := stub.SetEvent(interchainEventName, reqData); err != nil {
-		return shim.Error(fmt.Errorf("set event error: %w", err).Error())
-	}
-	return shim.Success(nil)
-}
+//// 非跨链操作请求，通过Http发送请求并接收返回数据
+//func (broker *Broker) RequestByHttp(stub shim.ChaincodeStubInterface, req RequestToPAPP) pb.Response {
+//	// 获取PAPP的IP地址
+//	IP, err := stub.GetState(PAPPIP)
+//	if err != nil {
+//		return shim.Error(err.Error())
+//	}
+//
+//	reqData, err := json.Marshal(req)
+//	if err != nil {
+//		return shim.Error(err.Error())
+//	}
+//
+//	// 发送http.post请求
+//	returnData,err := broker.SendRep(string(IP), string(reqData))
+//	if err != nil {
+//		return shim.Error(err.Error())
+//	}
+//	return shim.Success([]byte(returnData))
+//}
+//
+//// 非跨链操作请求，通过SetEvent发送请求
+//func (broker *Broker) RequestBySetEvent(stub shim.ChaincodeStubInterface, req RequestToPAPP) pb.Response {
+//	reqData, err := json.Marshal(req)
+//	if err != nil {
+//		return shim.Error(err.Error())
+//	}
+//
+//	if err := stub.SetEvent(interchainEventName, reqData); err != nil {
+//		return shim.Error(fmt.Errorf("set event error: %w", err).Error())
+//	}
+//	return shim.Success(nil)
+//}
 
 // 向服务器发送http.post请求
 func (broker *Broker) SendRep(url string, data string) (string, error) {

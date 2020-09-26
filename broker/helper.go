@@ -136,21 +136,4 @@ func EccSign(privateKey []byte,sourceData []byte) ([]byte, []byte) {
 	return rText, sText
 }
 
-//// ECC签名验证
-//func EccVerify(plainText,rText,sText,publicKeyText []byte) bool {
-//	pubInterface,err := x509.ParsePKIXPublicKey(publicKeyText)
-//	if err != nil {
-//		panic(err)
-//	}
-//
-//	publicKey := pubInterface.(*ecdsa.PublicKey)
-//
-//	hashText := sha1.Sum(plainText)
-//	var r,s big.Int
-//	r.UnmarshalText(rText)
-//	s.UnmarshalText(sText)
-//	bl := ecdsa.Verify(publicKey,hashText[:],&r,&s)
-//	return bl
-//}
-
 

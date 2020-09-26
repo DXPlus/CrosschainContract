@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/hyperledger/fabric/common/util"
+	"strconv"
 	"strings"
 
 	"github.com/hyperledger/fabric/core/chaincode/shim"
@@ -53,10 +54,6 @@ func (broker *Broker) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	/*--------------------------------------*/
 	/*               业务链调用              */
 	/*--------------------------------------*/
-	case "get":
-		return broker.get(stub, args)
-	case "set":
-		return broker.set(stub, args)
 	case "InterchainSingleQuery":
 		return broker.InterchainSingleQuery(stub, args)
 	case "InterchainMultiQuery":
@@ -68,16 +65,20 @@ func (broker *Broker) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	/*--------------------------------------*/
 	/*                PAPP调用              */
 	/*--------------------------------------*/
-	case "InterchainVerify":
-		return broker.InterchainVerify(stub, args)
-	case "savePrivateKey":
-		return broker.savePrivateKey(stub, args)
+	case "setPrivateKey":
+		return broker.setPrivateKey(stub, args)
 	case "modifyPAPPIP":
 		return broker.modifyPAPPIP(stub,args)
 	case "interchainGet":
 		return broker.interchainGet(stub, args)
 	case "interchainSet":
 		return broker.interchainSet(stub, args)
+	case "interchainQueryByValue":
+		return broker.interchainQueryByValue(stub, args)
+	case "interchainFuncCall":
+		return broker.interchainFuncCall(stub, args)
+	case "pollingEvent":
+		return broker.pollingEvent(stub, args)
 	/*--------------------------------------*/
 	/*        系统管理员调用-跨链历史查询       */
 	/*--------------------------------------*/
@@ -112,32 +113,6 @@ func (broker *Broker) initialize(stub shim.ChaincodeStubInterface) pb.Response {
 	return shim.Success(nil)
 }
 
-// get
-func (broker *Broker) get(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) < 1 {
-		return shim.Error("incorrect number of arguments, expecting 1")
-	}
-	key := args[0]
-	value, err := stub.GetState(key)
-	if err != nil {
-		return shim.Error(err.Error())
-	}
-	return shim.Success(value)
-}
-
-// set
-func (broker *Broker) set(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) < 2 {
-		return shim.Error("incorrect number of arguments, expecting 2")
-	}
-	key := args[0]
-	value := args[1]
-	if err := stub.PutState(key, []byte(value)); err != nil {
-		return shim.Error(fmt.Errorf("set error: %w", err).Error())
-	}
-	return shim.Success(nil)
-}
-
 /*----------------------------------------------------------*/
 /*                      业务链调用接口实现                     */
 /*----------------------------------------------------------*/
@@ -166,7 +141,7 @@ func (broker *Broker) InterchainSingleQuery(stub shim.ChaincodeStubInterface, ar
 	if err != nil {
 		fmt.Println("json marshal error: ", err)
 	}
-	// 3 生成签名
+	// 3 生成签名  各个节点生成的签名是不一样的，但是都会验证通过
 	Sha1Inst := sha1.New()
 	Sha1Inst.Write(ccRJson)
 	sourceData := Sha1Inst.Sum([]byte(""))
@@ -277,14 +252,8 @@ func (broker *Broker) InterchainDoubleModify(stub shim.ChaincodeStubInterface, a
 /*                       PAPP调用接口实现                     */
 /*----------------------------------------------------------*/
 
-// A-PAPP验证B-PAPP交易的真实性
-func (broker *Broker) InterchainVerify(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-
-	return shim.Success(nil)
-}
-
 // 保存PAPP给链码颁发的证书信息
-func (broker *Broker) savePrivateKey(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+func (broker *Broker) setPrivateKey(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) < 1 {
 		return shim.Error("incorrect number of arguments, expecting 1")
 	}
@@ -345,6 +314,89 @@ func (broker *Broker) interchainSet(stub shim.ChaincodeStubInterface, args []str
 
 	return shim.Success(nil)
 }
+
+// 调用业务链归集接口
+func (broker *Broker) interchainQueryByValue(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+	if len(args) < 1 {
+		return shim.Error("incorrect number of arguments, expecting 1")
+	}
+
+	value := args[0]// 归集关键词
+
+	b := util.ToChaincodeArgs("queryByValue",value)
+	response := stub.InvokeChaincode(chaincodeID, b, channelID)
+	if response.Status != shim.OK {
+		return shim.Error(fmt.Sprintf("invoke chaincode '%s' err: %s",chaincodeID , response.Message))
+	}
+
+	return shim.Success(response.Payload)
+}
+
+// 跨链合约调用业务合约函数的通用接口
+func (broker *Broker) interchainFuncCall(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+	// args[0]   调用函数名
+	// args[1:]  调用函数时的参数args
+	//funcName := args[0] // 调用函数名
+	//funcParameters := append(args[:0], args[1:]...)
+	//b := util.ToChaincodeArgs(funcName,funcParameters)
+	b := util.ArrayToChaincodeArgs(args)
+	response := stub.InvokeChaincode(chaincodeID, b, channelID)
+	if response.Status != shim.OK {
+		return shim.Error(fmt.Sprintf("invoke chaincode '%s' err: %s",chaincodeID , response.Message))
+	}
+
+	return shim.Success(response.Payload)
+}
+
+
+// 根据PAPP当前储存的事件数据来获取最新事件的数据
+func (broker *Broker) pollingEvent(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+	if len(args) < 1 {
+		return shim.Error("incorrect number of arguments, expecting 1")
+	}
+	// `[{"chainA":"1"},{"chainB":"3"},{"chainC":"1"}]`
+	pappEvents := []byte(args[0])
+
+	m := make(map[string]uint64)
+	if err := json.Unmarshal(pappEvents, &m); err != nil {
+		return shim.Error(fmt.Errorf("unmarshal out meta: %s", err).Error())
+	}
+	//`[{"chainA":"1"},{"chainB":"4"},{"chainC":"1"},{"chainD":"1"}]`
+	outMeta, err := broker.getMap(stub, outterMeta)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+
+	events := make([]*CrossChainRequest, 0)
+	for addr, idx := range outMeta {
+		// 用outterMeta的chainID来查m对应的index，如果没有查到就是设置为0
+		startPos, ok := m[addr]
+		if !ok {
+			startPos = 0
+		}
+		for i := startPos + 1; i <= idx; i++ {
+			eb, err := stub.GetState(broker.outMsgKey(addr, strconv.FormatUint(i, 10)))
+			if err != nil {
+				fmt.Printf("get out event by key %s fail", broker.outMsgKey(addr, strconv.FormatUint(i, 10)))
+				continue
+			}
+			e := &CrossChainRequest{}
+			if err := json.Unmarshal(eb, e); err != nil {
+				fmt.Println("unmarshal event fail")
+				continue
+			}
+			events = append(events, e)
+		}
+	}
+
+	ret, err := json.Marshal(events)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+
+	return shim.Success(ret)
+}
+
 
 func main() {
 	err := shim.Start(new(Broker))
